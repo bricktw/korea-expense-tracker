@@ -1,0 +1,13 @@
+{
+  "name": "韓國旅遊家庭記帳",
+  "short_name": "韓國記帳",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F3EF",
+  "theme_color": "#1C2340",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+*.local
+
+# 主 repo 根目錄 .gitignore 有 *.json，這裡把本專案需要的 json 救回來
+!package.json
+!package-lock.json
