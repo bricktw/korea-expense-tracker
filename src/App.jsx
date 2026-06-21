@@ -9,10 +9,38 @@ const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwQME-93nw5STbjk8Un
 // 防止只拿到 URL 的陌生人亂寫；非絕對機密（會被打包進前端）。要換時兩邊一起改。
 const API_TOKEN = "160bd56875889bec1267aa2a6e111a7577bbe9e29996d0fb";
 
-// 兩趟旅行（之後可改名 / 改預設匯率）
+// 兩趟旅行：各自幣別、預設匯率、付款方式（之後可改）
 const TRIPS = [
-  { id: "trip1", label: "韓國 第一趟", rate: 0.023 },
-  { id: "trip2", label: "韓國 第二趟", rate: 0.023 },
+  {
+    id: "trip1",
+    label: "釜山",
+    flag: "🇰🇷",
+    currency: "KRW",
+    currencyName: "韓圜",
+    symbol: "₩",
+    locale: "ko-KR",
+    rate: 0.023, // ₩1 ≈ NT$
+    methods: [
+      { id: "現金", label: "現金", emoji: "💵", color: "#4A7C59" },
+      { id: "Line Pay", label: "Line Pay", emoji: "💚", color: "#00B900" },
+      { id: "全支付", label: "全支付", emoji: "🔵", color: "#1A6FD4" },
+    ],
+  },
+  {
+    id: "trip2",
+    label: "福岡",
+    flag: "🇯🇵",
+    currency: "JPY",
+    currencyName: "日圓",
+    symbol: "¥",
+    locale: "ja-JP",
+    rate: 0.21, // ¥1 ≈ NT$
+    methods: [
+      { id: "現金", label: "現金", emoji: "💵", color: "#4A7C59" },
+      { id: "西瓜卡", label: "西瓜卡", emoji: "🍉", color: "#2E9E5B" },
+      { id: "信用卡", label: "信用卡", emoji: "💳", color: "#7A4DD4" },
+    ],
+  },
 ];
 
 // 記錄人（對應主系統 member_id：dad / mom / amber）
@@ -20,12 +48,6 @@ const RECORDERS = [
   { id: "dad", label: "爸爸" },
   { id: "mom", label: "媽媽" },
   { id: "amber", label: "安安" },
-];
-
-const PAYMENT_METHODS = [
-  { id: "現金", label: "現金", emoji: "💵", color: "#4A7C59" },
-  { id: "Line Pay", label: "Line Pay", emoji: "💚", color: "#00B900" },
-  { id: "全支付", label: "全支付", emoji: "🔵", color: "#1A6FD4" },
 ];
 
 const CATEGORIES = [
@@ -41,9 +63,6 @@ const STORAGE_KEY = "korea-travel-expenses-v2";
 const PREFS_KEY = "korea-travel-prefs-v2";
 const QUEUE_KEY = "korea-travel-queue-v2";
 
-function formatKRW(n) {
-  return `₩${Number(n).toLocaleString("ko-KR")}`;
-}
 function ntd(n) {
   return `NT$${Math.round(Number(n) || 0).toLocaleString("zh-TW")}`;
 }
@@ -85,12 +104,16 @@ export default function App() {
 
   const [trip, setTrip] = useState(prefs.trip || TRIPS[0].id);
   const [recorder, setRecorder] = useState(prefs.recorder || RECORDERS[0].id);
-  const [rates, setRates] = useState(
-    () => prefs.rates || Object.fromEntries(TRIPS.map((t) => [t.id, t.rate]))
-  );
+  const [rates, setRates] = useState(() => ({
+    ...Object.fromEntries(TRIPS.map((t) => [t.id, t.rate])),
+    ...(prefs.rates || {}),
+  }));
+
+  const tripObj = TRIPS.find((t) => t.id === trip) || TRIPS[0];
+  const methods = tripObj.methods;
 
   const [view, setView] = useState("add"); // add | list | summary
-  const [form, setForm] = useState({ amount: "", method: "現金", category: "餐飲", note: "" });
+  const [form, setForm] = useState({ amount: "", method: methods[0].id, category: "餐飲", note: "" });
   const [filterMethod, setFilterMethod] = useState("all");
   const [toast, setToast] = useState(null);
   const [sync, setSync] = useState(WEB_APP_URL ? "syncing" : "offline");
@@ -100,7 +123,17 @@ export default function App() {
   useEffect(() => saveJSON(QUEUE_KEY, queue), [queue]);
   useEffect(() => saveJSON(PREFS_KEY, { trip, recorder, rates }), [trip, recorder, rates]);
 
-  const currentRate = Number(rates[trip]) || TRIPS.find((t) => t.id === trip)?.rate || 0.023;
+  // 切換行程時：付款方式 / 篩選器可能不適用 → 重設
+  useEffect(() => {
+    if (!methods.some((m) => m.id === form.method)) {
+      setForm((f) => ({ ...f, method: methods[0].id }));
+    }
+    setFilterMethod("all");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip]);
+
+  const currentRate = Number(rates[trip]) || tripObj.rate;
+  const fmtCur = (n) => `${tripObj.symbol}${Number(n || 0).toLocaleString(tripObj.locale)}`;
 
   function showToast(msg) {
     setToast(msg);
@@ -131,7 +164,6 @@ export default function App() {
       const stillPending = await flushQueue(loadJSON(QUEUE_KEY, []));
       const server = await apiList();
       let merged = server;
-      // 套用尚未送出的操作，避免覆蓋掉本機樂觀更新
       for (const op of stillPending) {
         if (op.action === "add") merged = [op.entry, ...merged.filter((e) => e.id !== op.entry.id)];
         if (op.action === "delete") merged = merged.filter((e) => e.id !== op.id);
@@ -163,6 +195,7 @@ export default function App() {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       trip,
+      currency: tripObj.currency,
       recorder,
       amount: amt,
       rate: currentRate,
@@ -186,21 +219,21 @@ export default function App() {
 
   // ── 只看目前這趟 ──
   const tripExpenses = expenses.filter((e) => e.trip === trip);
-  const totalKRW = tripExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const totalCur = tripExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
   const totalTWD = tripExpenses.reduce((s, e) => s + Number(e.twd || 0), 0);
 
-  const byMethod = PAYMENT_METHODS.map((m) => {
+  const byMethod = methods.map((m) => {
     const rows = tripExpenses.filter((e) => e.method === m.id);
-    return { ...m, krw: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
+    return { ...m, amt: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
   });
   const byCategory = CATEGORIES.map((c) => {
     const rows = tripExpenses.filter((e) => e.category === c.id);
-    return { ...c, krw: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
-  }).filter((c) => c.krw > 0).sort((a, b) => b.krw - a.krw);
+    return { ...c, amt: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
+  }).filter((c) => c.amt > 0).sort((a, b) => b.amt - a.amt);
   const byRecorder = RECORDERS.map((r) => {
     const rows = tripExpenses.filter((e) => e.recorder === r.id);
-    return { ...r, krw: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
-  }).filter((r) => r.krw > 0);
+    return { ...r, amt: rows.reduce((s, e) => s + e.amount, 0), twd: rows.reduce((s, e) => s + e.twd, 0) };
+  }).filter((r) => r.amt > 0);
 
   const filtered = (filterMethod === "all" ? tripExpenses : tripExpenses.filter((e) => e.method === filterMethod));
 
@@ -223,7 +256,7 @@ export default function App() {
       {/* Header */}
       <div style={{ background: "#1C2340", color: "#fff", padding: "16px 20px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 13, opacity: 0.6 }}>🇰🇷 韓國旅遊記帳</div>
+          <div style={{ fontSize: 13, opacity: 0.6 }}>{tripObj.flag} {tripObj.label}・旅遊記帳</div>
           <div
             onClick={refresh}
             style={{ fontSize: 11, color: syncBadge.c, cursor: "pointer", background: "rgba(255,255,255,0.1)", padding: "3px 9px", borderRadius: 12 }}
@@ -245,11 +278,11 @@ export default function App() {
               fontWeight: trip === t.id ? 700 : 400,
               fontSize: 13,
               cursor: "pointer",
-            }}>{t.label}</button>
+            }}>{t.flag} {t.label}</button>
           ))}
         </div>
 
-        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: 1 }}>{formatKRW(totalKRW)}</div>
+        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: 1 }}>{fmtCur(totalCur)}</div>
         <div style={{ fontSize: 13, opacity: 0.65, marginTop: 2 }}>
           ≈ {ntd(totalTWD)} · 共 {tripExpenses.length} 筆
         </div>
@@ -260,7 +293,7 @@ export default function App() {
               <div style={{ fontSize: 16 }}>{m.emoji}</div>
               <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1 }}>{m.label}</div>
               <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>
-                {m.krw > 0 ? `₩${(m.krw / 1000).toFixed(0)}K` : "—"}
+                {m.amt > 0 ? `${tripObj.symbol}${(m.amt / 1000).toFixed(0)}K` : "—"}
               </div>
             </div>
           ))}
@@ -303,9 +336,9 @@ export default function App() {
 
             {/* Amount */}
             <div>
-              <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>金額（韓圜 ₩）</div>
+              <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>金額（{tripObj.currencyName} {tripObj.symbol}）</div>
               <input
-                type="number" inputMode="numeric" placeholder="例：15000"
+                type="number" inputMode="numeric" placeholder={tripObj.currency === "JPY" ? "例：1500" : "例：15000"}
                 value={form.amount}
                 onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                 onKeyDown={(e) => e.key === "Enter" && addExpense()}
@@ -324,7 +357,7 @@ export default function App() {
 
             {/* Rate (editable per trip) */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "2px solid #E0DDD7", borderRadius: 10, padding: "8px 12px" }}>
-              <span style={{ fontSize: 12, color: "#888" }}>本趟匯率 ₩1 ≈ NT$</span>
+              <span style={{ fontSize: 12, color: "#888" }}>本趟匯率 {tripObj.symbol}1 ≈ NT$</span>
               <input
                 type="number" step="0.0001" inputMode="decimal"
                 value={rates[trip] ?? ""}
@@ -337,7 +370,7 @@ export default function App() {
             <div>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>付款方式</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {PAYMENT_METHODS.map((m) => (
+                {methods.map((m) => (
                   <button key={m.id} onClick={() => setForm((f) => ({ ...f, method: m.id }))} style={{
                     flex: 1, padding: "10px 4px",
                     border: `2px solid ${form.method === m.id ? m.color : "#E0DDD7"}`,
@@ -373,7 +406,7 @@ export default function App() {
             <div>
               <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>備註（選填）</div>
               <input
-                type="text" placeholder="例：弘大炸雞、地鐵T-money..."
+                type="text" placeholder="例：豬肉湯飯、地鐵、藥妝…"
                 value={form.note}
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                 onKeyDown={(e) => e.key === "Enter" && addExpense()}
@@ -396,7 +429,7 @@ export default function App() {
         {view === "list" && (
           <div>
             <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
-              {[{ id: "all", label: "全部", emoji: "📋" }, ...PAYMENT_METHODS].map((m) => (
+              {[{ id: "all", label: "全部", emoji: "📋" }, ...methods].map((m) => (
                 <button key={m.id} onClick={() => setFilterMethod(m.id)} style={{
                   flexShrink: 0, padding: "6px 14px",
                   border: `1.5px solid ${filterMethod === m.id ? "#1C2340" : "#DDD"}`,
@@ -413,7 +446,7 @@ export default function App() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {filtered.map((e) => {
                   const cat = CATEGORIES.find((c) => c.id === e.category);
-                  const method = PAYMENT_METHODS.find((m) => m.id === e.method);
+                  const method = methods.find((m) => m.id === e.method);
                   const rec = RECORDERS.find((r) => r.id === e.recorder);
                   return (
                     <div key={e.id} style={{
@@ -423,8 +456,8 @@ export default function App() {
                       <div style={{ fontSize: 24, width: 36, textAlign: "center" }}>{cat?.emoji}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 600 }}>{formatKRW(e.amount)}</span>
-                          <span style={{ fontSize: 10, background: (method?.color || "#888") + "20", color: method?.color, borderRadius: 6, padding: "1px 6px", fontWeight: 600 }}>{method?.emoji} {method?.label}</span>
+                          <span style={{ fontSize: 14, fontWeight: 600 }}>{fmtCur(e.amount)}</span>
+                          <span style={{ fontSize: 10, background: (method?.color || "#888") + "20", color: method?.color || "#888", borderRadius: 6, padding: "1px 6px", fontWeight: 600 }}>{method?.emoji} {method?.label || e.method}</span>
                         </div>
                         <div style={{ fontSize: 11, color: "#999", marginTop: 2 }}>
                           {rec?.label} · {String(e.date).slice(5)} {e.time} · {cat?.label}{e.note ? ` · ${e.note}` : ""}
@@ -450,12 +483,12 @@ export default function App() {
             <div style={{ background: "#fff", borderRadius: 14, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
               <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 14 }}>付款方式</div>
               {byMethod.map((m) => {
-                const pct = totalKRW > 0 ? (m.krw / totalKRW) * 100 : 0;
+                const pct = totalCur > 0 ? (m.amt / totalCur) * 100 : 0;
                 return (
                   <div key={m.id} style={{ marginBottom: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 13 }}>
                       <span>{m.emoji} {m.label}</span>
-                      <span style={{ fontWeight: 600 }}>{formatKRW(m.krw)} <span style={{ color: "#aaa", fontWeight: 400, fontSize: 11 }}>≈{ntd(m.twd)}</span></span>
+                      <span style={{ fontWeight: 600 }}>{fmtCur(m.amt)} <span style={{ color: "#aaa", fontWeight: 400, fontSize: 11 }}>≈{ntd(m.twd)}</span></span>
                     </div>
                     <div style={{ background: "#F0EDE8", borderRadius: 6, height: 8 }}>
                       <div style={{ width: `${pct}%`, background: m.color, height: 8, borderRadius: 6, transition: "width 0.4s ease", minWidth: pct > 0 ? 6 : 0 }} />
@@ -474,7 +507,7 @@ export default function App() {
                 <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F0EDE8" }}>
                   <span style={{ fontSize: 13 }}>{c.emoji} {c.label}</span>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{formatKRW(c.krw)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtCur(c.amt)}</div>
                     <div style={{ fontSize: 11, color: "#aaa" }}>{ntd(c.twd)}</div>
                   </div>
                 </div>
@@ -488,7 +521,7 @@ export default function App() {
                   <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F0EDE8" }}>
                     <span style={{ fontSize: 13 }}>{r.label}</span>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{formatKRW(r.krw)}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtCur(r.amt)}</div>
                       <div style={{ fontSize: 11, color: "#aaa" }}>{ntd(r.twd)}</div>
                     </div>
                   </div>
@@ -497,10 +530,10 @@ export default function App() {
             )}
 
             <div style={{ background: "#1C2340", borderRadius: 14, padding: 16, color: "#fff", textAlign: "center" }}>
-              <div style={{ fontSize: 12, opacity: 0.6 }}>{TRIPS.find((t) => t.id === trip)?.label} 總花費</div>
-              <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{formatKRW(totalKRW)}</div>
+              <div style={{ fontSize: 12, opacity: 0.6 }}>{tripObj.flag} {tripObj.label} 總花費</div>
+              <div style={{ fontSize: 28, fontWeight: 700, marginTop: 4 }}>{fmtCur(totalCur)}</div>
               <div style={{ fontSize: 14, opacity: 0.7, marginTop: 4 }}>≈ {ntd(totalTWD)} 新台幣</div>
-              <div style={{ fontSize: 12, opacity: 0.5, marginTop: 8 }}>匯率 ₩1 ≈ NT${currentRate}</div>
+              <div style={{ fontSize: 12, opacity: 0.5, marginTop: 8 }}>匯率 {tripObj.symbol}1 ≈ NT${currentRate}</div>
             </div>
           </div>
         )}

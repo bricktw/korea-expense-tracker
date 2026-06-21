@@ -1,6 +1,6 @@
 {
-  "name": "韓國旅遊家庭記帳",
-  "short_name": "韓國記帳",
+  "name": "旅遊家庭記帳",
+  "short_name": "旅遊記帳",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

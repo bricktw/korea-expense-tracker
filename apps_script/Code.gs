@@ -23,7 +23,8 @@
 var SHARED_TOKEN = '160bd56875889bec1267aa2a6e111a7577bbe9e29996d0fb';
 
 var SHEET_NAME = '明細';
-var HEADERS = ['id', '行程', '日期', '時間', '記錄人', '金額(韓圜)', '匯率', '台幣', '付款方式', '類別', '備註'];
+// 「金額(原幣)」依該趟幣別（KRW/JPY…）；幣別欄記錄該筆原幣代碼。新欄位一律附加在尾端，避免動到既有資料欄位順序。
+var HEADERS = ['id', '行程', '日期', '時間', '記錄人', '金額(原幣)', '匯率', '台幣', '付款方式', '類別', '備註', '幣別'];
 
 function getSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -33,8 +34,11 @@ function getSheet_() {
   }
   if (sh.getLastRow() === 0) {
     sh.appendRow(HEADERS);
-    sh.setFrozenRows(1);
+  } else {
+    // 修復/升級表頭：就地寫入 HEADERS（位置 1..N 不變，只會在尾端補上新欄位如「幣別」）。
+    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
   }
+  sh.setFrozenRows(1);
   return sh;
 }
 
@@ -55,12 +59,13 @@ function readAll_() {
       date: r[idx['日期']],
       time: r[idx['時間']],
       recorder: r[idx['記錄人']],
-      amount: Number(r[idx['金額(韓圜)']]) || 0,
+      amount: Number(r[idx['金額(原幣)']]) || 0,
       rate: Number(r[idx['匯率']]) || 0,
       twd: Number(r[idx['台幣']]) || 0,
       method: r[idx['付款方式']],
       category: r[idx['類別']],
-      note: r[idx['備註']]
+      note: r[idx['備註']],
+      currency: idx['幣別'] != null ? r[idx['幣別']] : ''
     });
   }
   return rows;
@@ -107,7 +112,8 @@ function doPost(e) {
         Number(en.twd) || 0,
         en.method || '',
         en.category || '',
-        en.note || ''
+        en.note || '',
+        en.currency || ''
       ]);
       return jsonOut_({ ok: true });
     }
