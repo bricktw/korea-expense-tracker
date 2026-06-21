@@ -19,6 +19,9 @@
  *   URL 不會變。
  */
 
+// 共用 token：必須與 src/App.jsx 的 API_TOKEN 完全一致。改 token 時兩邊一起改、Code.gs 要重新部署。
+var SHARED_TOKEN = '160bd56875889bec1267aa2a6e111a7577bbe9e29996d0fb';
+
 var SHEET_NAME = '明細';
 var HEADERS = ['id', '行程', '日期', '時間', '記錄人', '金額(韓圜)', '匯率', '台幣', '付款方式', '類別', '備註'];
 
@@ -71,6 +74,9 @@ function jsonOut_(obj) {
 
 function doGet(e) {
   try {
+    if (!e || !e.parameter || e.parameter.token !== SHARED_TOKEN) {
+      return jsonOut_({ ok: false, error: 'unauthorized' });
+    }
     return jsonOut_({ ok: true, data: readAll_() });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
@@ -82,6 +88,9 @@ function doPost(e) {
   lock.waitLock(20000);
   try {
     var body = JSON.parse(e.postData.contents);
+    if (body.token !== SHARED_TOKEN) {
+      return jsonOut_({ ok: false, error: 'unauthorized' });
+    }
     var action = body.action || 'add';
     var sh = getSheet_();
 

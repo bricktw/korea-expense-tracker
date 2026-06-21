@@ -3,7 +3,11 @@ import { useState, useEffect, useCallback } from "react";
 // ── 設定 ─────────────────────────────────────────────
 // 部署 apps_script/Code.gs 後，把「網頁應用程式 URL」貼在這裡。
 // 留空 = 純離線模式（只存本機 localStorage，不同步）。
-const WEB_APP_URL = "";
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwQME-93nw5STbjk8Unse2OEDZdklUr3s7TJprUwSVVoqTIKZF12OV_YFb49b55P07f8A/exec";
+
+// 共用 token（必須與 apps_script/Code.gs 的 SHARED_TOKEN 完全一致）。
+// 防止只拿到 URL 的陌生人亂寫；非絕對機密（會被打包進前端）。要換時兩邊一起改。
+const API_TOKEN = "160bd56875889bec1267aa2a6e111a7577bbe9e29996d0fb";
 
 // 兩趟旅行（之後可改名 / 改預設匯率）
 const TRIPS = [
@@ -46,7 +50,7 @@ function ntd(n) {
 
 // ── Google Sheet API（POST 用 text/plain 避免 CORS preflight）──
 async function apiList() {
-  const res = await fetch(WEB_APP_URL, { method: "GET" });
+  const res = await fetch(`${WEB_APP_URL}?token=${encodeURIComponent(API_TOKEN)}`, { method: "GET" });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || "list failed");
   return json.data;
@@ -55,7 +59,7 @@ async function apiPost(body) {
   const res = await fetch(WEB_APP_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, token: API_TOKEN }),
   });
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || "post failed");
